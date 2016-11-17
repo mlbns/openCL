@@ -24,6 +24,6 @@ void rotateImg(__global float* dest_data,
         // and there is no translation, we know that (xpos,ypos)
         // will be unique for each input (ix,iy) and so each
         // work-item can write its results independently
-        dest_data[(int)ypos*W+(int)xpos]= src_data[iy*W+ix];
+        dest_data[(int)ypos*W+(int)xpos] = src_data[iy*W+ix];
     }
 }
