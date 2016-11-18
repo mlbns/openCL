@@ -1,10 +1,13 @@
 // System includes
+#define CL_USE_DEPRECATED_OPENCL_1_2_APIS
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
 #include <string.h>
 #include "error.h"
 #include "adcUtilsOpenCL.h"
+#include "printInfo.h"
+
 
 // OpenCL includes
 #include <CL/cl.h>
@@ -38,13 +41,21 @@ int main(int argc, char *argv[]) {
 
     // check arguments
     if(argc != 4) {
-        printf("Error de argumentos\n");
+        printf("\n");
+        printf("Ingrese las acciones a realizar\n");
+        printf("Ejemplo: ./part1 Y N Y\n");
+        printf("Para rotar la imagen y voltearla horizontalmente\n");
+        printf("\n");
         return -1;
     }
 
     for(int i = 1; i < argc; i++) {
         if(strcmp(argv[i], "Y") != 0 && strcmp(argv[i], "N") != 0) {
-            printf("Error de argumentos\n");
+            printf("\n");
+            printf("Ingrese las acciones a realizar\n");
+            printf("Ejemplo: ./part1 Y N Y\n");
+            printf("Para rotar la imagen y voltearla horizontalmente\n");
+            printf("\n");
             return -1;
         }       
     }
@@ -64,7 +75,7 @@ int main(int argc, char *argv[]) {
         int ox, oy;
 
         do {
-            printf("Ingrese\n");
+            printf("Ingrese el ángulo y el centro de rotación (x y):\n");
             argNum = scanf("%f %d %d", &angle, &ox, &oy);
         } while (argNum != 3);
         
@@ -117,6 +128,8 @@ int main(int argc, char *argv[]) {
     // Fill in the platforms
     status = clGetPlatformIDs(numPlatforms, platforms, NULL);
 
+    printPlatformInfo(platforms, numPlatforms);
+
     // Retrieve the number of devices
     cl_uint numDevices = 0;
     status = clGetDeviceIDs(platforms[0], CL_DEVICE_TYPE_ALL, 0,
@@ -131,6 +144,21 @@ int main(int argc, char *argv[]) {
     status = clGetDeviceIDs(platforms[0], CL_DEVICE_TYPE_ALL,
         numDevices, devices, NULL);
 
+    // Choose best device
+    cl_device_id device;
+    int *performances = (int*)calloc(numDevices, sizeof(int));
+    for (int i = 0; i < numDevices; i++)
+        performances[i] = printDeviceInfo(devices[i], numDevices);
+
+    printf("\n");
+
+    int maxPerformance = 0;
+    for (unsigned int i = 1; i < numDevices - 1; i++)
+        if (performances[maxPerformance] > performances[i])
+            maxPerformance = i;
+
+    device = devices[maxPerformance];
+
     // Create a context and associate it with the devices
     cl_context context;
     context = clCreateContext(NULL, numDevices, devices, NULL,
@@ -138,7 +166,7 @@ int main(int argc, char *argv[]) {
 
     // Create a command queue and associate it with the device
     cl_command_queue cmdQueue;
-    cmdQueue = clCreateCommandQueue(context, devices[0], 0, &status);
+    cmdQueue = clCreateCommandQueue(context, device, 0, &status);
 
     // Create a buffer object that will contain the image byte array
     cl_mem bufInput;
@@ -252,6 +280,7 @@ int main(int argc, char *argv[]) {
     free(outputImg);
     free(platforms);
     free(devices);
+    free(performances);
 
     return 0;
 }
