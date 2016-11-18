@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include "adcUtilsOpenCL.h"
 #include <math.h>
+#include <string.h>
 
 // OpenCL includes
 #include <CL/cl.h>
@@ -31,13 +32,54 @@ float getSin(float angle) {
 }
 
 
-int main() {
+int main(int argc, char *argv[]) {
     // This code executes on the OpenCL host
 
-    // things
-    float angle = 45.0;
-    float cos = getCos(angle);
-    float sin = getSin(angle);
+    // check arguments
+    if(argc != 4) {
+        printf("Error de argumentos\n");
+        return -1;
+    }
+
+    for(int i = 1; i < argc; i++) {
+        if(strcmp(argv[i], "Y") != 0 && strcmp(argv[i], "N") != 0) {
+            printf("Error de argumentos\n");
+            return -1;
+        }       
+    }
+
+    int actions[3];
+    actions[0] = (strcmp(argv[1],"Y") == 0) ? 1 : 0; // rotate image
+    actions[1] = (strcmp(argv[2],"Y") == 0) ? 1 : 0; // flip vertically image
+    actions[2] = (strcmp(argv[3],"Y") == 0) ? 1 : 0; // flip horizontally image
+
+    float *metadata = NULL;
+    int numMetadata;
+
+    // 
+    if(actions[0]) {
+        int argNum = 0;
+        float angle;
+        int ox, oy;
+
+        do {
+            printf("Ingrese\n");
+            argNum = scanf("%f %d %d", &angle, &ox, &oy);
+        } while (argNum != 3);
+        
+        numMetadata = 6;
+        metadata = (float*)malloc(sizeof(float) * numMetadata);
+        
+        printf("angle es: %.6f\n", angle);
+        metadata[2] = ox;
+        metadata[3] = oy;
+        metadata[4] = getCos(angle);
+        metadata[5] = getSin(angle);
+    } else {
+        numMetadata = 2;
+        metadata = (float*)malloc(sizeof(float) * numMetadata);
+    }
+
 
     int width, height;
 
@@ -46,15 +88,22 @@ int main() {
 
     // Read image from file
     float *imgToProcess = readImage(inputFile, &width, &height);
-    int ox = width/2, oy = height/2;
+
+    metadata[0] = width;
+    metadata[1] = height;
+
+    for (int i = 0; i < numMetadata; ++i)
+    {
+        printf("Metadata[%d] es: %f\n", i, metadata[i]);
+    }
 
     int dataSize = height*width*sizeof(float);
+    int metadataSize = numMetadata*sizeof(float);
 
     float *outputImg = NULL;
     outputImg = (float*)malloc(dataSize);
     for(int i = 0; i < height*width; i++)
         outputImg[i] = 0.0;
-
 
     // Use this to check the output of each API call
     cl_int status;
@@ -107,6 +156,11 @@ int main() {
     bufInput = clCreateBuffer(context, CL_MEM_READ_ONLY, dataSize,
        NULL, &status);
 
+    // Create a buffer object that will contain the image metadata
+    cl_mem bufMetadata;
+    bufMetadata = clCreateBuffer(context, CL_MEM_READ_ONLY, metadataSize,
+       NULL, &status);
+
     // Create a buffer object that will hold the output image
     cl_mem bufOutput;
     bufOutput = clCreateBuffer(context, CL_MEM_WRITE_ONLY, dataSize,
@@ -115,6 +169,22 @@ int main() {
     // Write input image to the device buffer bufInput
     status = clEnqueueWriteBuffer(cmdQueue, bufInput, CL_TRUE,
         0, dataSize, imgToProcess, 0, NULL, NULL);
+
+    // Write metadata to the device buffer bufMetadata
+    status = clEnqueueWriteBuffer(cmdQueue, bufMetadata, CL_TRUE,
+        0, metadataSize, metadata, 0, NULL, NULL);
+
+    // for(i = 3; i >= 0 ; i--) {
+        // if(actions[i]) {
+        //     if(i == 0) {
+        //         size_t globalWorkSize[2];
+
+        //         // There are 'elements' work-items
+        //         globalWorkSize[0] = width;
+        //         globalWorkSize[1] = height;
+        //     }
+        // }
+    // }
 
     // Create a program with source code
     const char* source = readSource("rotation.cl");
@@ -129,18 +199,13 @@ int main() {
 
     // Create the vector addition kernel
     cl_kernel kernel;
-    kernel = clCreateKernel(program, "rotateImg", &status);
+    kernel = clCreateKernel(program, "program", &status);
     // check_error(status, "clEnqueueNDRangeKernel");
 
     // Associate the input and output buffers with the kernel
     status = clSetKernelArg(kernel, 0, sizeof(cl_mem), &bufOutput);
     status = clSetKernelArg(kernel, 1, sizeof(cl_mem), &bufInput);
-    status = clSetKernelArg(kernel, 2, sizeof(cl_int), &ox);
-    status = clSetKernelArg(kernel, 3, sizeof(cl_int), &oy);
-    status = clSetKernelArg(kernel, 4, sizeof(cl_int), &width);
-    status = clSetKernelArg(kernel, 5, sizeof(cl_int), &height);
-    status = clSetKernelArg(kernel, 6, sizeof(cl_float), &sin);
-    status = clSetKernelArg(kernel, 7, sizeof(cl_float), &cos);
+    status = clSetKernelArg(kernel, 2, sizeof(cl_mem), &bufMetadata);
 
     // Define an index space (global work size) of work
     // items for execution. A workgroup size (local work size)
@@ -167,11 +232,13 @@ int main() {
     clReleaseProgram(program);
     clReleaseCommandQueue(cmdQueue);
     clReleaseMemObject(bufInput);
+    clReleaseMemObject(bufMetadata);    
     clReleaseMemObject(bufOutput);
     clReleaseContext(context);
 
     // Free host resources
     free(imgToProcess);
+    free(metadata);
     free(outputImg);
     free(platforms);
     free(devices);
