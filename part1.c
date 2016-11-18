@@ -1,9 +1,10 @@
 // System includes
 #include <stdio.h>
 #include <stdlib.h>
-#include "adcUtilsOpenCL.h"
 #include <math.h>
 #include <string.h>
+#include "error.h"
+#include "adcUtilsOpenCL.h"
 
 // OpenCL includes
 #include <CL/cl.h>
@@ -70,7 +71,6 @@ int main(int argc, char *argv[]) {
         numMetadata = 6;
         metadata = (float*)malloc(sizeof(float) * numMetadata);
         
-        printf("angle es: %.6f\n", angle);
         metadata[2] = ox;
         metadata[3] = oy;
         metadata[4] = getCos(angle);
@@ -85,17 +85,14 @@ int main(int argc, char *argv[]) {
 
     const char* inputFile = "input.bmp";
     const char* outputFile = "output.bmp";
+    char* kernelFile;
+    char* kernelName;
 
     // Read image from file
     float *imgToProcess = readImage(inputFile, &width, &height);
 
     metadata[0] = width;
     metadata[1] = height;
-
-    for (int i = 0; i < numMetadata; ++i)
-    {
-        printf("Metadata[%d] es: %f\n", i, metadata[i]);
-    }
 
     int dataSize = height*width*sizeof(float);
     int metadataSize = numMetadata*sizeof(float);
@@ -108,8 +105,6 @@ int main(int argc, char *argv[]) {
     // Use this to check the output of each API call
     cl_int status;
 
-    printf("Por crear plataformas\n");
-
     // Retrieve the number of platforms
     cl_uint numPlatforms = 0;
     status = clGetPlatformIDs(0, NULL, &numPlatforms);
@@ -121,8 +116,6 @@ int main(int argc, char *argv[]) {
 
     // Fill in the platforms
     status = clGetPlatformIDs(numPlatforms, platforms, NULL);
-
-    printf("Por crear devices\n");
 
     // Retrieve the number of devices
     cl_uint numDevices = 0;
@@ -138,14 +131,10 @@ int main(int argc, char *argv[]) {
     status = clGetDeviceIDs(platforms[0], CL_DEVICE_TYPE_ALL,
         numDevices, devices, NULL);
 
-    printf("Por crear el contexto\n");
-
     // Create a context and associate it with the devices
     cl_context context;
     context = clCreateContext(NULL, numDevices, devices, NULL,
         NULL, &status);
-
-    printf("Por crear queue\n");
 
     // Create a command queue and associate it with the device
     cl_command_queue cmdQueue;
@@ -155,81 +144,102 @@ int main(int argc, char *argv[]) {
     cl_mem bufInput;
     bufInput = clCreateBuffer(context, CL_MEM_READ_ONLY, dataSize,
        NULL, &status);
+    check_error(status, "clCreateBuffer bufInput");
 
     // Create a buffer object that will contain the image metadata
     cl_mem bufMetadata;
     bufMetadata = clCreateBuffer(context, CL_MEM_READ_ONLY, metadataSize,
        NULL, &status);
+    check_error(status, "clCreateBuffer bufMetadata");
 
     // Create a buffer object that will hold the output image
     cl_mem bufOutput;
     bufOutput = clCreateBuffer(context, CL_MEM_WRITE_ONLY, dataSize,
         NULL, &status);
+    check_error(status, "clCreateBuffer bufOuput");
 
     // Write input image to the device buffer bufInput
     status = clEnqueueWriteBuffer(cmdQueue, bufInput, CL_TRUE,
         0, dataSize, imgToProcess, 0, NULL, NULL);
+    check_error(status, "clEnqueueWriteBuffer bufInput");
 
     // Write metadata to the device buffer bufMetadata
     status = clEnqueueWriteBuffer(cmdQueue, bufMetadata, CL_TRUE,
         0, metadataSize, metadata, 0, NULL, NULL);
+    check_error(status, "clEnqueueWriteBuffer bufMetadata");
 
-    // for(i = 3; i >= 0 ; i--) {
-        // if(actions[i]) {
-        //     if(i == 0) {
-        //         size_t globalWorkSize[2];
-
-        //         // There are 'elements' work-items
-        //         globalWorkSize[0] = width;
-        //         globalWorkSize[1] = height;
-        //     }
-        // }
-    // }
-
-    // Create a program with source code
-    const char* source = readSource("rotation.cl");
-    cl_program program;
-    program = clCreateProgramWithSource(context, 1, &source, NULL, &status);
-
-    // Build (compile) the program for the device
-    status = clBuildProgram(program, numDevices, devices,
-        NULL, NULL, NULL);
-
-    printf("Por crear el kernel\n");
-
-    // Create the vector addition kernel
-    cl_kernel kernel;
-    kernel = clCreateKernel(program, "program", &status);
-    // check_error(status, "clEnqueueNDRangeKernel");
-
-    // Associate the input and output buffers with the kernel
-    status = clSetKernelArg(kernel, 0, sizeof(cl_mem), &bufOutput);
-    status = clSetKernelArg(kernel, 1, sizeof(cl_mem), &bufInput);
-    status = clSetKernelArg(kernel, 2, sizeof(cl_mem), &bufMetadata);
-
-    // Define an index space (global work size) of work
-    // items for execution. A workgroup size (local work size)
-    // is not required, but can be used.
     size_t globalWorkSize[2];
 
-    // There are 'elements' work-items
-    globalWorkSize[0] = width;
-    globalWorkSize[1] = height;
+    for(int i = 0; i < 3 ; i++) {
+        if(actions[i]) {
+            if(i == 0) {
+                kernelFile = "rotation.cl";
+                kernelName = "rotateImg";
 
-    // Execute the kernel for execution
-    status = clEnqueueNDRangeKernel(cmdQueue, kernel, 2, NULL,
-        globalWorkSize, NULL, 0, NULL, NULL);
+                globalWorkSize[0] = width;
+                globalWorkSize[1] = height;
 
-    // Read the device output buffer to the host output array
-    clEnqueueReadBuffer(cmdQueue, bufOutput, CL_TRUE, 0,
-        dataSize, outputImg, 0, NULL, NULL);
+            } else if(i == 1) {
+                kernelFile = "vertFlip.cl";
+                kernelName = "vertFlip";
+
+                globalWorkSize[0] = width;
+                globalWorkSize[1] = height / 2;
+            } else {
+                kernelFile = "horizFlip.cl";
+                kernelName = "horizFlip";
+
+                globalWorkSize[0] = width / 2;
+                globalWorkSize[1] = height;
+            }
+
+            // Create a program with source code
+            const char* source = readSource(kernelFile);
+            cl_program program;
+            program = clCreateProgramWithSource(context, 1, &source, NULL, &status);
+            check_error(status, "clCreateProgramWithSource");
+
+            // Build (compile) the program for the device
+            status = clBuildProgram(program, numDevices, devices,
+                NULL, NULL, NULL);
+            check_error(status, "clBuildProgram");
+
+            // Create the vector addition kernel
+            cl_kernel kernel;
+            kernel = clCreateKernel(program, kernelName, &status);
+            check_error(status, "clCreateKernel");
+            // check_error(status, "clEnqueueNDRangeKernel");
+
+            // Associate the input and output buffers with the kernel
+            status = clSetKernelArg(kernel, 0, sizeof(cl_mem), &bufOutput);
+            check_error(status, "clSetKernelArg 1");
+            status = clSetKernelArg(kernel, 1, sizeof(cl_mem), &bufInput);
+            check_error(status, "clSetKernelArg 2");
+            status = clSetKernelArg(kernel, 2, sizeof(cl_mem), &bufMetadata);
+            check_error(status, "clSetKernelArg 3");
+
+            // Execute the kernel for execution
+            status = clEnqueueNDRangeKernel(cmdQueue, kernel, 2, NULL,
+                globalWorkSize, NULL, 0, NULL, NULL);
+
+            // Read the device output buffer to the host output array
+            clEnqueueCopyBuffer(cmdQueue, bufOutput, bufInput, 0, 0,
+                dataSize, 0, NULL, NULL);
+            check_error(status, "clEnqueueReadBuffer bufOutput");
+
+
+            clReleaseKernel(kernel);
+            clReleaseProgram(program);
+        }
+    }
 
     //
+    clEnqueueReadBuffer(cmdQueue, bufOutput, CL_TRUE, 0,
+        dataSize, outputImg, 0, NULL, NULL);
+    check_error(status, "clEnqueueWriteBuffer bufInput outputImg");
     storeImage(outputImg, outputFile, height, width, inputFile);
 
     // Free OpenCL resources
-    clReleaseKernel(kernel);
-    clReleaseProgram(program);
     clReleaseCommandQueue(cmdQueue);
     clReleaseMemObject(bufInput);
     clReleaseMemObject(bufMetadata);    

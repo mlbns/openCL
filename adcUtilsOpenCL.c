@@ -47,7 +47,6 @@ char* readSource(char* kernelPath) {
    fread(source, 1, size, fp);
    source[size] = '\0';
 
-   printf("Por salir de readSource\n");
    return source;
 }
 
@@ -66,7 +65,6 @@ void storeImage(float *imageOut, const char *filename, int rows, int cols,
 
    ifp = fopen(refFilename, "rb");
    if(ifp == NULL) {
-      printf("entro aca\n");
       perror(filename);
       exit(-1);
    }
@@ -82,7 +80,6 @@ void storeImage(float *imageOut, const char *filename, int rows, int cols,
 
    buffer = (unsigned char *)malloc(offset);
    if(buffer == NULL) {
-      printf("fallo aca\n");
       perror("malloc");
       exit(-1);
    }
@@ -124,7 +121,6 @@ void storeImage(float *imageOut, const char *filename, int rows, int cols,
    fclose(ifp);
 
    free(buffer);
-   printf("Por salir de storeImage\n");
 }
 
 /*
@@ -224,6 +220,5 @@ float* readImage(const char *filename, int* widthOut, int* heightOut) {
    }
 
    free(imageData);
-   printf("Por salir de readImage\n");
    return floatImage;
 }
